@@ -5,7 +5,21 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	jwtadapter "github.com/chessmaster-pro/chessmaster/internal/adapters/auth/jwt"
+	"github.com/chessmaster-pro/chessmaster/internal/adapters/memrepo"
 )
+
+func newTestDeps() Deps {
+	players := memrepo.NewPlayers()
+	return Deps{
+		Players: players,
+		Games:   memrepo.NewGames(),
+		Moves:   memrepo.NewMoves(),
+		Ratings: memrepo.NewRatings(players),
+		Signer:  jwtadapter.NewSigner("test-secret"),
+	}
+}
 
 func TestHealthz(t *testing.T) {
 	t.Parallel()
@@ -22,7 +36,7 @@ func TestHealthz(t *testing.T) {
 		{"cors preflight", http.MethodOptions, "/healthz", http.StatusNoContent, ""},
 	}
 
-	srv := NewRouter()
+	srv := NewRouter(newTestDeps())
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {

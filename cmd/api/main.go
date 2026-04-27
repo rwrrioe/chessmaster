@@ -10,15 +10,78 @@ import (
 	"syscall"
 	"time"
 
+	jwtadapter "github.com/chessmaster-pro/chessmaster/internal/adapters/auth/jwt"
 	"github.com/chessmaster-pro/chessmaster/internal/adapters/httpapi"
+	"github.com/chessmaster-pro/chessmaster/internal/adapters/memrepo"
+	pgadapter "github.com/chessmaster-pro/chessmaster/internal/adapters/postgres"
+	"github.com/chessmaster-pro/chessmaster/internal/adapters/stockfish"
+	"github.com/chessmaster-pro/chessmaster/internal/adapters/wsroom"
+	"github.com/chessmaster-pro/chessmaster/internal/ports"
 )
 
 func main() {
 	port := envOr("PORT", "8080")
+	jwtSecret := envOr("JWT_SECRET", "dev-secret-change-me")
+
+	signer := jwtadapter.NewSigner(jwtSecret)
+
+	var (
+		players ports.PlayerRepo
+		games   ports.GameRepo
+		moves   ports.MoveRepo
+		ratings ports.RatingRepo
+	)
+
+	if pgURL := os.Getenv("POSTGRES_URL"); pgURL != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		pool, err := pgadapter.New(ctx, pgURL)
+		if err != nil {
+			log.Fatalf("postgres: %v", err)
+		}
+		players = pgadapter.NewPlayers(pool)
+		games = pgadapter.NewGames(pool)
+		moves = pgadapter.NewMoves(pool)
+		ratings = pgadapter.NewRatings(pool)
+		log.Println("using postgres repos")
+	} else {
+		log.Println("running with in-memory repos (dev)")
+		memPlayers := memrepo.NewPlayers()
+		players = memPlayers
+		games = memrepo.NewGames()
+		moves = memrepo.NewMoves()
+		ratings = memrepo.NewRatings(memPlayers)
+	}
+
+	var engine ports.Engine
+	sfPath := os.Getenv("STOCKFISH_PATH")
+	if sfPath == "" {
+		sfPath = "stockfish"
+	}
+	eng := &stockfish.Engine{Path: sfPath}
+	// Attempt to verify binary exists; fall back to nil (no AI)
+	if _, err := os.Stat(sfPath); err == nil {
+		engine = eng
+		log.Printf("stockfish engine at %s", sfPath)
+	} else {
+		log.Println("stockfish not found; AI moves disabled")
+	}
+
+	hub := wsroom.NewHub(games, moves, ratings, signer)
+
+	deps := httpapi.Deps{
+		Players: players,
+		Games:   games,
+		Moves:   moves,
+		Ratings: ratings,
+		Engine:  engine,
+		Signer:  signer,
+		WS:      hub,
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           httpapi.NewRouter(),
+		Handler:           httpapi.NewRouter(deps),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
