@@ -1,0 +1,682 @@
+openapi: 3.1.0
+info:
+  title: ChessMaster Pro API
+  version: 0.1.0
+  description: |
+    REST API for ChessMaster Pro — a real-time chess platform with AI coaching
+    and Pawn-based wagering. All protected endpoints require a Bearer JWT issued
+    by POST /auth/register or POST /auth/login.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+security: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: invalid credentials
+
+    TokenResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: Signed HS256 JWT, valid for 7 days.
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+    Player:
+      type: object
+      required: [id, email, username, city, isPro, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+        username:
+          type: string
+          example: alice
+        city:
+          type: string
+          example: Almaty
+        isPro:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          description: RFC3339 timestamp.
+          example: "2026-04-01T10:00:00Z"
+
+    Game:
+      type: object
+      required: [id, mode, status, pgn]
+      properties:
+        id:
+          type: string
+          format: uuid
+        whiteId:
+          type: string
+          format: uuid
+          nullable: true
+        blackId:
+          type: string
+          format: uuid
+          nullable: true
+        mode:
+          type: string
+          enum: [pvp, ai_easy, ai_medium, ai_hard]
+          example: pvp
+        status:
+          type: string
+          enum: [pending, active, white_won, black_won, draw, aborted]
+          example: active
+        inviteCode:
+          type: string
+          nullable: true
+          description: 8-character base32 code; only present for PvP games in pending state.
+          example: ABCDE123
+        pgn:
+          type: string
+          description: PGN movetext; empty string while the game has no moves.
+          example: "1. e4 e5 *"
+        result:
+          type: string
+          nullable: true
+          enum: ["1-0", "0-1", "1/2-1/2"]
+          example: "1-0"
+
+    Move:
+      type: object
+      required: [ply, uci, san, fenAfter]
+      properties:
+        ply:
+          type: integer
+          description: 1-based half-move number.
+          example: 1
+        uci:
+          type: string
+          description: Move in UCI notation.
+          example: e2e4
+        san:
+          type: string
+          description: Move in Standard Algebraic Notation.
+          example: e4
+        fenAfter:
+          type: string
+          description: FEN of the position after this move.
+          example: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+
+    LeaderboardEntry:
+      type: object
+      required: [username, city, elo, games, wins]
+      properties:
+        username:
+          type: string
+          example: alice
+        city:
+          type: string
+          example: Almaty
+        elo:
+          type: integer
+          example: 1432
+        games:
+          type: integer
+          example: 47
+        wins:
+          type: integer
+          example: 28
+
+    Mistake:
+      type: object
+      required: [ply, move, severity, comment]
+      properties:
+        ply:
+          type: integer
+          description: 1-based half-move number where the mistake occurred.
+          example: 12
+        move:
+          type: string
+          description: The move actually played, in UCI notation.
+          example: d4d5
+        severity:
+          type: string
+          enum: [inaccuracy, mistake, blunder]
+          example: blunder
+        better:
+          type: string
+          description: Best alternative move in UCI notation; omitted when none.
+          example: f2f4
+        comment:
+          type: string
+          description: One-sentence explanation of why this was a mistake.
+          example: "Pushing the pawn allows Black to fork the rooks."
+
+    Analysis:
+      type: object
+      required: [summary, mistakes]
+      properties:
+        summary:
+          type: string
+          description: Short paragraph about the overall game quality.
+          example: "A well-played middlegame with a decisive error in the endgame."
+        mistakes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Mistake'
+
+    GameWithMoves:
+      type: object
+      required: [game, moves]
+      properties:
+        game:
+          $ref: '#/components/schemas/Game'
+        moves:
+          type: array
+          items:
+            $ref: '#/components/schemas/Move'
+
+paths:
+  /healthz:
+    get:
+      summary: Health probe
+      operationId: healthz
+      tags: [System]
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /auth/register:
+    post:
+      summary: Register a new player
+      operationId: register
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, username, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: alice@example.com
+                username:
+                  type: string
+                  example: alice
+                password:
+                  type: string
+                  format: password
+                  example: s3cr3t
+                city:
+                  type: string
+                  description: Optional home city for leaderboard filtering.
+                  example: Almaty
+      responses:
+        '201':
+          description: Registration successful; JWT returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Missing required fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Email already registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      summary: Login with email and password
+      operationId: login
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: alice@example.com
+                password:
+                  type: string
+                  format: password
+                  example: s3cr3t
+      responses:
+        '200':
+          description: Login successful; JWT returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Malformed request body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /me:
+    get:
+      summary: Get current player profile
+      operationId: getMe
+      tags: [Players]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Player profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Player'
+        '401':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Player not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /me/upgrade:
+    post:
+      summary: Upgrade account to Pro
+      operationId: upgradeMe
+      tags: [Players]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Updated player profile with isPro=true.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Player'
+        '401':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /games:
+    post:
+      summary: Create a new game
+      operationId: createGame
+      tags: [Games]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode:
+                  type: string
+                  enum: [pvp, ai_easy, ai_medium, ai_hard]
+                  example: pvp
+                color:
+                  type: string
+                  enum: [white, black, random]
+                  default: white
+                  description: Which side the creator plays; "random" resolves to white.
+      responses:
+        '201':
+          description: Game created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '400':
+          description: Invalid mode or request body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /games/join:
+    post:
+      summary: Join a PvP game using an invite code
+      operationId: joinGame
+      tags: [Games]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [inviteCode]
+              properties:
+                inviteCode:
+                  type: string
+                  example: ABCDE123
+      responses:
+        '200':
+          description: Joined successfully; updated game returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '400':
+          description: Missing invite code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Game not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Game is no longer open.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /games/{id}:
+    get:
+      summary: Get game details with move list
+      operationId: getGame
+      tags: [Games]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Game and moves.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameWithMoves'
+        '400':
+          description: Invalid game ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Game not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /games/{id}/moves:
+    get:
+      summary: List moves for a game
+      operationId: listGameMoves
+      tags: [Games]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Ordered move list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Move'
+        '400':
+          description: Invalid game ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /games/{id}/move:
+    post:
+      summary: Submit a move
+      operationId: postMove
+      tags: [Games]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [uci]
+              properties:
+                uci:
+                  type: string
+                  description: Move in UCI notation.
+                  example: e2e4
+      responses:
+        '200':
+          description: Move applied; updated game and full move list returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameWithMoves'
+        '400':
+          description: Invalid move or request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Player is not a participant in this game.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Game not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Game is not active or it is not the player's turn.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /games/{id}/coach:
+    post:
+      summary: Request AI coach analysis of a completed game
+      operationId: coachGame
+      tags: [Coach]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Analysis result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Analysis'
+        '401':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Game not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Game has no moves yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: AI coach not configured (GEMINI_API_KEY not set).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /players/me/games:
+    get:
+      summary: List authenticated player's recent games
+      operationId: listMyGames
+      tags: [Players]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of games (newest first, max 20).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Game'
+        '401':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /leaderboard:
+    get:
+      summary: Top players by Elo, optionally filtered by city
+      operationId: leaderboard
+      tags: [Leaderboard]
+      parameters:
+        - name: city
+          in: query
+          schema:
+            type: string
+          description: Filter by city name (e.g. Almaty, Astana, Shymkent).
+          example: Almaty
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 50
+          description: Maximum number of entries to return.
+      responses:
+        '200':
+          description: Leaderboard entries ordered by Elo descending.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LeaderboardEntry'
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
