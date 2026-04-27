@@ -1,0 +1,33 @@
+# Go
+/bin/
+*.exe
+*.test
+*.out
+vendor/
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+
+# Env
+.env
+.env.local
+*.local
+
+# IDE
+.idea/
+.vscode/
+.vs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Postgres data
+data/
+pgdata/
