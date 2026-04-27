@@ -219,3 +219,33 @@ func TestListMyGames(t *testing.T) {
 		t.Fatalf("expected 1 game, got %d", len(games))
 	}
 }
+
+func TestUpgradePro(t *testing.T) {
+	t.Parallel()
+	srv := NewRouter(newTestDeps())
+
+	tok := registerAndLogin(t, srv, "pro@chess.com", "proPlayer", "pass")
+
+	// Upgrade to Pro
+	req := httptest.NewRequest(http.MethodPost, "/me/upgrade", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("upgrade: got %d body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	json.NewDecoder(rr.Body).Decode(&resp) //nolint
+	if resp["isPro"] != true {
+		t.Fatalf("expected isPro=true, got: %v", resp["isPro"])
+	}
+
+	// Upgrading without auth returns 401
+	req2 := httptest.NewRequest(http.MethodPost, "/me/upgrade", nil)
+	rr2 := httptest.NewRecorder()
+	srv.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated upgrade: got %d, want 401", rr2.Code)
+	}
+}

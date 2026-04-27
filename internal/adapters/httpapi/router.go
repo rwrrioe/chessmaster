@@ -41,6 +41,7 @@ func NewRouter(d Deps) http.Handler {
 	// Protected routes
 	authMW := jwtadapter.Middleware(d.Signer)
 	r.With(authMW).Get("/me", d.handleMe)
+	r.With(authMW).Post("/me/upgrade", d.handleUpgrade)
 
 	// Games
 	r.With(authMW).Post("/games", d.handleCreateGame)
