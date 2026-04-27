@@ -17,6 +17,7 @@ type Deps struct {
 	Moves   ports.MoveRepo
 	Ratings ports.RatingRepo
 	Engine  ports.Engine
+	Coach   ports.Coach
 	Signer  *jwtadapter.Signer
 	WS      http.Handler
 }
@@ -47,6 +48,9 @@ func NewRouter(d Deps) http.Handler {
 	r.Get("/games/{id}", d.handleGetGame)
 	r.Get("/games/{id}/moves", d.handleGetMoves)
 	r.With(authMW).Post("/games/{id}/move", d.handlePostMove)
+
+	// AI Coach
+	r.With(authMW).Post("/games/{id}/coach", d.handleCoach)
 
 	// Players
 	r.With(authMW).Get("/players/me/games", d.handleListMyGames)

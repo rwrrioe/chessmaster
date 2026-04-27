@@ -11,6 +11,7 @@ import (
 	"time"
 
 	jwtadapter "github.com/chessmaster-pro/chessmaster/internal/adapters/auth/jwt"
+	"github.com/chessmaster-pro/chessmaster/internal/adapters/gemini"
 	"github.com/chessmaster-pro/chessmaster/internal/adapters/httpapi"
 	"github.com/chessmaster-pro/chessmaster/internal/adapters/memrepo"
 	pgadapter "github.com/chessmaster-pro/chessmaster/internal/adapters/postgres"
@@ -69,12 +70,22 @@ func main() {
 
 	hub := wsroom.NewHub(games, moves, ratings, signer)
 
+	// Wire AI coach. Set GEMINI_API_KEY to enable; omit to run without coaching.
+	var coach ports.Coach
+	if geminiKey := os.Getenv("GEMINI_API_KEY"); geminiKey != "" {
+		coach = gemini.New(geminiKey)
+		log.Println("gemini coach enabled")
+	} else {
+		log.Println("GEMINI_API_KEY not set; AI coach disabled")
+	}
+
 	deps := httpapi.Deps{
 		Players: players,
 		Games:   games,
 		Moves:   moves,
 		Ratings: ratings,
 		Engine:  engine,
+		Coach:   coach,
 		Signer:  signer,
 		WS:      hub,
 	}
