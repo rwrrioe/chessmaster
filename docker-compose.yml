@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: chess
       POSTGRES_DB: chess
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,12 +23,6 @@ services:
     volumes:
       - ./migrations:/migrations
     command: ["-path", "/migrations", "-database", "postgres://chess:chess@postgres:5432/chess?sslmode=disable", "up"]
-
-  stockfish:
-    image: niklasf/stockfish:latest
-    restart: unless-stopped
-    tty: true
-    stdin_open: true
 
   api:
     build:
@@ -52,6 +46,9 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8080
+        NEXT_PUBLIC_WS_URL: ws://localhost:8080
     depends_on:
       - api
     environment:

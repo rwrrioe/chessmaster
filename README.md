@@ -1,5 +1,7 @@
 # ChessMaster Pro
 
+![image](image.png)
+
 > Premium chess with stakes — bet Pawns, play live, get AI-coached. Built for Kazakhstan.
 
 ChessMaster Pro is a real-time multiplayer chess platform where every game can carry a Pawn wager. Players earn internal currency through wins, streaks, and daily logins; Pro subscribers receive a 2x multiplier. After each game an AI Coach (Google Gemini) analyses mistakes and suggests improvements — the first chess platform in the region that combines live stakes with structured coaching.

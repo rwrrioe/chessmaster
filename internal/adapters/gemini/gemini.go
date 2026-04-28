@@ -14,7 +14,9 @@ import (
 )
 
 const (
-	defaultModel   = "gemini-2.0-flash-exp"
+	// defaultModel is the GA Gemini 2.0 Flash. The previous *-exp slug is being
+	// retired; override with WithModel if a newer model becomes preferred.
+	defaultModel   = "gemini-2.0-flash"
 	defaultBaseURL = "https://generativelanguage.googleapis.com/v1beta"
 
 	// analyzePrompt is the instruction sent to Gemini for game analysis.
@@ -65,6 +67,14 @@ func New(apiKey string) *Client {
 		baseURL: defaultBaseURL,
 		http:    &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// WithModel returns a copy of the client targeting a different model id
+// (e.g. "gemini-2.5-flash", "gemini-1.5-flash").
+func (c *Client) WithModel(model string) *Client {
+	cp := *c
+	cp.model = model
+	return &cp
 }
 
 // withBaseURL returns a copy of the client with a different base URL; used only in tests.

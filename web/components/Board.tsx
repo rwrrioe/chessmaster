@@ -3,7 +3,6 @@ import { useState, useCallback } from "react";
 import Bezel from "./Bezel";
 import { cn } from "@/lib/cn";
 
-// Unicode chess glyphs: indexed by piece letter (uppercase = white)
 const PIECE_GLYPHS: Record<string, string> = {
   K: "♔", Q: "♕", R: "♖", B: "♗", N: "♘", P: "♙",
   k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟",
@@ -12,10 +11,6 @@ const PIECE_GLYPHS: Record<string, string> = {
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = [8, 7, 6, 5, 4, 3, 2, 1];
 
-/**
- * Parse FEN position string into a 8×8 board array (rank 8 = index 0).
- * Returns array[rank][file] = piece char or null.
- */
 function parseFEN(fen: string): (string | null)[][] {
   const board: (string | null)[][] = Array.from({ length: 8 }, () =>
     Array(8).fill(null)
@@ -24,7 +19,7 @@ function parseFEN(fen: string): (string | null)[][] {
   const rows = pos.split("/");
   for (let r = 0; r < 8; r++) {
     let f = 0;
-    for (const ch of rows[r]) {
+    for (const ch of rows[r] ?? "") {
       if (/\d/.test(ch)) {
         f += parseInt(ch, 10);
       } else {
@@ -48,12 +43,6 @@ interface BoardProps {
   disabled?: boolean;
 }
 
-/**
- * 8×8 chess board rendered with unicode pieces (premium, zero asset weight).
- * Light squares #1a1a1a, dark squares #0a0a0a.
- * Drag source: mousedown sets dragging piece; drop target: mouseup validates UCI.
- * Wrapped in Double-Bezel.
- */
 export default function Board({
   fen,
   legalMoves,
@@ -62,8 +51,7 @@ export default function Board({
   disabled = false,
 }: BoardProps) {
   const board = parseFEN(fen);
-  const [dragging, setDragging] = useState<{ r: number; f: number } | null>(null);
-  const [hover, setHover] = useState<{ r: number; f: number } | null>(null);
+  const [selected, setSelected] = useState<{ r: number; f: number } | null>(null);
 
   const displayRanks = orientation === "white" ? RANKS : [...RANKS].reverse();
   const displayFiles = orientation === "white" ? FILES : [...FILES].reverse();
@@ -73,34 +61,82 @@ export default function Board({
   const isLegalTarget = useCallback(
     (fromR: number, fromF: number, toR: number, toF: number) => {
       const uci = toUCI(fromF, fromR, toF, toR);
-      return legalSet.has(uci) || legalSet.has(uci + "q"); // promotion
+      return legalSet.has(uci) || legalSet.has(uci + "q");
     },
     [legalSet]
   );
 
-  function handleDragStart(r: number, f: number) {
-    if (disabled) return;
-    const piece = board[r][f];
-    if (!piece) return;
-    setDragging({ r, f });
-  }
-
-  function handleDrop(r: number, f: number) {
-    if (!dragging) return;
-    const { r: fr, f: ff } = dragging;
-    if (fr === r && ff === f) {
-      setDragging(null);
-      return;
-    }
-    const uci = toUCI(ff, fr, f, r);
-    const uciQ = uci + "q";
+  function attemptMove(fromR: number, fromF: number, toR: number, toF: number) {
+    const uci = toUCI(fromF, fromR, toF, toR);
     if (legalSet.has(uci)) {
       onMove(uci);
-    } else if (legalSet.has(uciQ)) {
-      onMove(uciQ);
+      return true;
     }
-    setDragging(null);
-    setHover(null);
+    if (legalSet.has(uci + "q")) {
+      onMove(uci + "q");
+      return true;
+    }
+    return false;
+  }
+
+  function handleSquareClick(r: number, f: number) {
+    if (disabled) return;
+    const piece = board[r][f];
+
+    if (selected) {
+      // Same square — deselect
+      if (selected.r === r && selected.f === f) {
+        setSelected(null);
+        return;
+      }
+      // Try the move
+      if (attemptMove(selected.r, selected.f, r, f)) {
+        setSelected(null);
+        return;
+      }
+      // Clicked another own piece — switch selection
+      if (piece) {
+        setSelected({ r, f });
+        return;
+      }
+      // Empty square, illegal — clear
+      setSelected(null);
+      return;
+    }
+
+    if (!piece) return;
+    // Only allow selecting a piece that has at least one legal move from here
+    const fromUCI = `${FILES[f]}${8 - r}`;
+    const hasLegal = legalMoves.some((m) => m.startsWith(fromUCI));
+    if (!hasLegal) return;
+    setSelected({ r, f });
+  }
+
+  function handleDragStart(e: React.DragEvent, r: number, f: number) {
+    if (disabled || !board[r][f]) {
+      e.preventDefault();
+      return;
+    }
+    setSelected({ r, f });
+    // Required for Firefox drag to actually start
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", `${r},${f}`);
+  }
+
+  function handleDrop(e: React.DragEvent, r: number, f: number) {
+    e.preventDefault();
+    const data = e.dataTransfer.getData("text/plain");
+    if (!data) return;
+    const [fr, ff] = data.split(",").map((n) => parseInt(n, 10));
+    if (Number.isNaN(fr) || Number.isNaN(ff)) return;
+    if (attemptMove(fr, ff, r, f)) {
+      setSelected(null);
+    }
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
   }
 
   function rankIndex(displayRank: number) {
@@ -113,23 +149,15 @@ export default function Board({
   return (
     <Bezel>
       <Bezel.Inner className="p-3">
-        <div
-          className="grid grid-cols-8 ring-1 ring-white/5 rounded-lg overflow-hidden select-none"
-          onMouseLeave={() => {
-            setDragging(null);
-            setHover(null);
-          }}
-        >
+        <div className="grid grid-cols-8 ring-1 ring-white/5 rounded-lg overflow-hidden select-none">
           {displayRanks.map((rank) => {
             const ri = rankIndex(rank);
             return displayFiles.map((file) => {
               const fi = fileIndex(file);
               const piece = board[ri][fi];
               const isLight = (ri + fi) % 2 !== 0;
-              const isDragged = dragging?.r === ri && dragging?.f === fi;
-              const isHovered = hover?.r === ri && hover?.f === fi;
-              const canDrop =
-                dragging && isLegalTarget(dragging.r, dragging.f, ri, fi);
+              const isSelected = selected?.r === ri && selected?.f === fi;
+              const canDrop = selected && isLegalTarget(selected.r, selected.f, ri, fi);
 
               return (
                 <div
@@ -138,38 +166,40 @@ export default function Board({
                     "aspect-square flex items-center justify-center relative cursor-pointer",
                     "transition-colors duration-200",
                     isLight ? "bg-[#1a1a1a]" : "bg-[#0a0a0a]",
-                    isDragged && "opacity-40",
-                    canDrop && isHovered && "bg-white/20",
-                    canDrop && !isHovered && "after:absolute after:inset-[30%] after:rounded-full after:bg-white/20"
+                    isSelected && "ring-2 ring-amber-400/60 ring-inset",
+                    canDrop && "bg-emerald-500/10",
+                    canDrop && piece && "ring-2 ring-rose-400/40 ring-inset"
                   )}
-                  onMouseDown={() => handleDragStart(ri, fi)}
-                  onMouseEnter={() => {
-                    if (dragging) setHover({ r: ri, f: fi });
-                  }}
-                  onMouseUp={() => handleDrop(ri, fi)}
+                  onClick={() => handleSquareClick(ri, fi)}
+                  onDragOver={handleDragOver}
+                  onDrop={(e) => handleDrop(e, ri, fi)}
                 >
                   {piece && (
                     <span
+                      draggable={!disabled}
+                      onDragStart={(e) => handleDragStart(e, ri, fi)}
                       className={cn(
-                        "text-2xl leading-none select-none transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+                        "text-3xl leading-none select-none transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] cursor-grab active:cursor-grabbing",
                         piece === piece.toUpperCase()
                           ? "text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
-                          : "text-white/30 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]",
-                        dragging?.r === ri && dragging?.f === fi && "scale-110"
+                          : "text-white/40 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]",
+                        isSelected && "scale-110"
                       )}
                     >
                       {PIECE_GLYPHS[piece] ?? piece}
                     </span>
                   )}
-                  {/* Rank label on leftmost file */}
+                  {/* Legal-move dot when selected */}
+                  {canDrop && !piece && (
+                    <span className="absolute w-2.5 h-2.5 rounded-full bg-white/30 pointer-events-none" />
+                  )}
                   {fi === (orientation === "white" ? 0 : 7) && (
-                    <span className="absolute top-0.5 left-0.5 text-[8px] text-white/20 font-mono leading-none">
+                    <span className="absolute top-0.5 left-1 text-[8px] text-white/20 font-mono leading-none pointer-events-none">
                       {rank}
                     </span>
                   )}
-                  {/* File label on bottom rank */}
                   {ri === (orientation === "white" ? 7 : 0) && (
-                    <span className="absolute bottom-0.5 right-0.5 text-[8px] text-white/20 font-mono leading-none">
+                    <span className="absolute bottom-0.5 right-1 text-[8px] text-white/20 font-mono leading-none pointer-events-none">
                       {file}
                     </span>
                   )}

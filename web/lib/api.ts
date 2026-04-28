@@ -83,14 +83,22 @@ export async function joinGame(inviteCode: string): Promise<Game> {
   }, true);
 }
 
-export async function getGame(id: string): Promise<{ game: Game; moves: Move[] }> {
+export interface GameSnapshot {
+  game: Game;
+  moves: Move[];
+  fen: string;
+  legalMoves: string[];
+  sideToMove: "white" | "black";
+}
+
+export async function getGame(id: string): Promise<GameSnapshot> {
   return request(`/games/${id}`);
 }
 
 export async function postMove(
   id: string,
   uci: string
-): Promise<{ game: Game; moves: Move[] }> {
+): Promise<GameSnapshot> {
   return request(`/games/${id}/move`, {
     method: "POST",
     body: JSON.stringify({ uci }),

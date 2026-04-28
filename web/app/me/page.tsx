@@ -49,7 +49,7 @@ export default function MePage() {
     Promise.all([me(), myGames()])
       .then(([p, g]) => {
         setPlayer(p);
-        setGames(g);
+        setGames(g ?? []);
       })
       .catch(() => router.push("/login"))
       .finally(() => setLoading(false));

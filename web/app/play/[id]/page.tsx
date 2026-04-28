@@ -41,17 +41,20 @@ export default function GamePage() {
 
   const [game, setGame] = useState<Game | null>(null);
   const [moves, setMoves] = useState<Move[]>([]);
+  const [restFen, setRestFen] = useState<string>(INITIAL_FEN);
+  const [restLegalMoves, setRestLegalMoves] = useState<string[]>([]);
+  const [restSide, setRestSide] = useState<"white" | "black">("white");
   const [wsState, setWsState] = useState<WSState | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
   const [loading, setLoading] = useState(true);
   const wsRef = useRef<WSController | null>(null);
 
-  // Derive FEN and legalMoves from WS state or initial
-  const fen = wsState?.fen ?? INITIAL_FEN;
-  const legalMoves = wsState?.legalMoves ?? [];
+  // Prefer WS state when connected (live opponent moves), otherwise REST snapshot.
+  const fen = wsState?.fen ?? restFen;
+  const legalMoves = wsState?.legalMoves ?? restLegalMoves ?? [];
   const status = wsState?.status ?? game?.status ?? "pending";
-  const sideToMove = wsState?.sideToMove ?? "white";
+  const sideToMove = wsState?.sideToMove ?? restSide;
 
   // Fetch initial game state
   useEffect(() => {
@@ -59,7 +62,10 @@ export default function GamePage() {
       try {
         const data = await getGame(gameId);
         setGame(data.game);
-        setMoves(data.moves);
+        setMoves(data.moves ?? []);
+        if (data.fen) setRestFen(data.fen);
+        if (data.legalMoves) setRestLegalMoves(data.legalMoves);
+        if (data.sideToMove) setRestSide(data.sideToMove);
       } catch {
         // Ignore — we'll show skeleton
       } finally {
@@ -69,10 +75,13 @@ export default function GamePage() {
     load();
   }, [gameId]);
 
-  // Connect WebSocket
+  // Connect WebSocket — only for PvP. AI games use REST so the engine fires
+  // synchronously inside handlePostMove; the WS hub has no engine wired in.
   useEffect(() => {
     const token = getToken();
-    if (!token) return; // spectator mode — REST only
+    if (!token) return;
+    if (!game) return;
+    if (game.mode !== "pvp") return;
 
     const controller = connectGameSocket(gameId, token, {
       onState: (msg) => {
@@ -94,18 +103,21 @@ export default function GamePage() {
     wsRef.current = controller;
     return () => controller.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameId]);
+  }, [gameId, game?.mode]);
 
   const handleMove = useCallback(
     async (uci: string) => {
       if (wsConnected && wsRef.current) {
         wsRef.current.send({ type: "move", uci });
       } else {
-        // REST fallback
+        // REST fallback (used by AI games, or PvP before WS connects)
         try {
           const data = await postMove(gameId, uci);
           setGame(data.game);
-          setMoves(data.moves);
+          setMoves(data.moves ?? []);
+          if (data.fen) setRestFen(data.fen);
+          if (data.legalMoves) setRestLegalMoves(data.legalMoves);
+          if (data.sideToMove) setRestSide(data.sideToMove);
         } catch {
           // Ignore invalid move
         }
@@ -186,7 +198,7 @@ export default function GamePage() {
           <Bezel>
             <Bezel.Inner className="p-4">
               <p className="text-xs text-white/30 uppercase tracking-widest mb-3 px-2">Moves</p>
-              <MoveList moves={wsState ? [] : moves} className="max-h-60" />
+              <MoveList moves={moves ?? []} className="max-h-60" />
             </Bezel.Inner>
           </Bezel>
 

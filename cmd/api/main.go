@@ -73,8 +73,14 @@ func main() {
 	// Wire AI coach. Set GEMINI_API_KEY to enable; omit to run without coaching.
 	var coach ports.Coach
 	if geminiKey := os.Getenv("GEMINI_API_KEY"); geminiKey != "" {
-		coach = gemini.New(geminiKey)
-		log.Println("gemini coach enabled")
+		c := gemini.New(geminiKey)
+		if model := os.Getenv("GEMINI_MODEL"); model != "" {
+			c = c.WithModel(model)
+			log.Printf("gemini coach enabled (model=%s)", model)
+		} else {
+			log.Println("gemini coach enabled (default model)")
+		}
+		coach = c
 	} else {
 		log.Println("GEMINI_API_KEY not set; AI coach disabled")
 	}

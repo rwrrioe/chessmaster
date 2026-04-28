@@ -131,9 +131,14 @@ func (d *Deps) handleGetGame(w http.ResponseWriter, r *http.Request) {
 	}
 
 	moves, _ := d.Moves.ListByGame(r.Context(), gameID)
+	g := replayGame(moves)
+	fen, legal, side := boardSnapshot(g)
 	respondJSON(w, http.StatusOK, map[string]any{
-		"game":  gameResponse(game),
-		"moves": movesResponse(moves),
+		"game":       gameResponse(game),
+		"moves":      movesResponse(moves),
+		"fen":        fen,
+		"legalMoves": legal,
+		"sideToMove": side,
 	})
 }
 
@@ -258,10 +263,43 @@ func (d *Deps) handlePostMove(w http.ResponseWriter, r *http.Request) {
 
 	updated, _ := d.Games.ByID(r.Context(), gameID)
 	allMoves, _ := d.Moves.ListByGame(r.Context(), gameID)
+	fen, legal, side := boardSnapshot(g)
 	respondJSON(w, http.StatusOK, map[string]any{
-		"game":  gameResponse(updated),
-		"moves": movesResponse(allMoves),
+		"game":       gameResponse(updated),
+		"moves":      movesResponse(allMoves),
+		"fen":        fen,
+		"legalMoves": legal,
+		"sideToMove": side,
 	})
+}
+
+func replayGame(moves []ports.Move) *chess.Game {
+	g := chess.NewGame()
+	for _, m := range moves {
+		pos, err := chess.ParseFEN(g.PositionFEN())
+		if err != nil {
+			return g
+		}
+		mv, err := chess.ParseUCI(pos, m.UCI)
+		if err != nil {
+			return g
+		}
+		_ = g.Move(mv)
+	}
+	return g
+}
+
+func boardSnapshot(g *chess.Game) (fen string, legal []string, side string) {
+	fen = g.PositionFEN()
+	legal = []string{}
+	for _, m := range g.LegalMoves() {
+		legal = append(legal, m.UCI())
+	}
+	side = "white"
+	if pos, err := chess.ParseFEN(fen); err == nil && pos.SideToMove == chess.Black {
+		side = "black"
+	}
+	return
 }
 
 func (d *Deps) handleListMyGames(w http.ResponseWriter, r *http.Request) {

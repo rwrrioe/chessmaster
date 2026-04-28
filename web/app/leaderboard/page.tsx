@@ -16,7 +16,7 @@ export default function LeaderboardPage() {
   useEffect(() => {
     setLoading(true);
     leaderboard(city || undefined, 50)
-      .then(setEntries)
+      .then((d) => setEntries(d ?? []))
       .catch(() => setEntries([]))
       .finally(() => setLoading(false));
   }, [city]);

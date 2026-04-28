@@ -3,6 +3,8 @@ package httpapi
 import (
 	"net/http"
 	"strconv"
+
+	"github.com/chessmaster-pro/chessmaster/internal/ports"
 )
 
 func (d *Deps) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
@@ -25,6 +27,9 @@ func (d *Deps) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+	if entries == nil {
+		entries = []ports.LeaderboardEntry{}
 	}
 
 	respondJSON(w, http.StatusOK, entries)
