@@ -3,6 +3,8 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"strings"
 
 	jwtadapter "github.com/chessmaster-pro/chessmaster/internal/adapters/auth/jwt"
 	"github.com/chessmaster-pro/chessmaster/internal/ports"
@@ -73,9 +75,28 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
+// corsMiddleware allows requests from origins listed in CORS_ORIGINS
+// (comma-separated), or "*" if the env is unset. The first matching
+// allowed origin is echoed back per request so credentialed flows work.
 func corsMiddleware(next http.Handler) http.Handler {
+	raw := os.Getenv("CORS_ORIGINS")
+	allowAll := raw == "" || raw == "*"
+	allowed := map[string]struct{}{}
+	if !allowAll {
+		for _, o := range strings.Split(raw, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				allowed[o] = struct{}{}
+			}
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if allowAll {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if _, ok := allowed[origin]; ok {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {

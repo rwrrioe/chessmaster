@@ -40,6 +40,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("postgres: %v", err)
 		}
+		if err = pgadapter.EnsureSchema(ctx, pool); err != nil {
+			log.Fatalf("schema: %v", err)
+		}
 		players = pgadapter.NewPlayers(pool)
 		games = pgadapter.NewGames(pool)
 		moves = pgadapter.NewMoves(pool)
